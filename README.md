@@ -176,3 +176,22 @@ Interactive commands:
 
 - `c` runs connection test;
 - `q` quits.
+
+## Sample Output
+
+```text
+Telegram connection quality: Excellent (96.8/100)
+  MTProto score: 82.9/100
+  TCP score:     89.5/100
+  Media score:     89.5/100
+  TestProxy:
+    p50=161.8ms, p95=163.3ms, jitter=0.6ms, success=100.0%
+  TCP (best DCs):
+    149.154.167.51:80 p50=0.2ms p95=0.3ms success=100.0%
+    149.154.171.5:80 p50=0.3ms p95=0.4ms success=100.0%
+    149.154.167.91:443 p50=0.2ms p95=0.5ms success=100.0%
+    149.154.171.5:5222 p50=0.3ms p95=0.3ms success=100.0%
+    149.154.171.5:443 p50=0.2ms p95=0.4ms success=100.0%
+  Connection states:
+    Ready: 1
+```
