@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
 project(TdConnectionTest VERSION 1.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -10,6 +10,7 @@ set(TD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 find_package(Threads REQUIRED)
 find_package(CURL REQUIRED)
+add_subdirectory(${TD_DIR} td)
 
 add_executable(connection_test
     cpp_example.cpp

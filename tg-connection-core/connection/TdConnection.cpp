@@ -451,7 +451,7 @@ void TdConnection::quit() {
 
 double TdConnection::test_proxy() {
     TdConnection::Object obj;
-    if (send_request_sync(td_api::make_object<td_api::pingProxy>(0), obj)) {
+    if (send_request_sync(td_api::make_object<td_api::pingProxy>(td_api::object_ptr<td_api::proxy>()), obj)) {
         double seconds = td::move_tl_object_as<td_api::seconds>(obj)->seconds_;
         return seconds;
     }

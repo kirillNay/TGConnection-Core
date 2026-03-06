@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
 project(TdExample VERSION 1.0 LANGUAGES CXX)
 
-find_package(Td 1.8.62 REQUIRED)
+if (CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+  find_package(Td 1.8.62 REQUIRED)
+endif()
 add_executable(tdjson_example tdjson_example.cpp)
 target_link_libraries(tdjson_example PRIVATE Td::TdJson)
 set_property(TARGET tdjson_example PROPERTY CXX_STANDARD 11)
