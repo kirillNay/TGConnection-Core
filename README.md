@@ -68,7 +68,6 @@ private external fun nativeCreate(
     apiHash: String
 ): Long
 ```
-
 Usage example:
 
 ```kotlin

@@ -1,11 +1,12 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 #include "td/telegram/UserManager.h"
 
+#include "td/telegram/ActiveStoryState.h"
 #include "td/telegram/AnimationsManager.h"
 #include "td/telegram/AudiosManager.h"
 #include "td/telegram/AuthManager.h"
@@ -523,29 +524,27 @@ class UploadProfilePhotoQuery final : public Td::ResultHandler {
       flags |= telegram_api::photos_uploadProfilePhoto::FILE_MASK;
       photo_input_file = std::move(input_file);
     }
-    if (td_->user_manager_->is_user_bot(user_id) != td_->auth_manager_->is_bot()) {
+    bool is_me = user_id == td_->user_manager_->get_my_id();
+    telegram_api::object_ptr<telegram_api::InputUser> input_user;
+    if (!is_me) {
       auto r_input_user = td_->user_manager_->get_input_user(user_id);
       if (r_input_user.is_error()) {
         return on_error(r_input_user.move_as_error());
       }
-      flags |= telegram_api::photos_uploadProfilePhoto::BOT_MASK;
+      input_user = r_input_user.move_as_ok();
+    }
+    if (td_->user_manager_->is_user_bot(user_id) != td_->auth_manager_->is_bot() || is_me) {
+      if (input_user != nullptr) {
+        flags |= telegram_api::photos_uploadProfilePhoto::BOT_MASK;
+      }
       send_query(G()->net_query_creator().create(
-          telegram_api::photos_uploadProfilePhoto(flags, is_fallback, r_input_user.move_as_ok(),
+          telegram_api::photos_uploadProfilePhoto(flags, is_fallback, std::move(input_user),
                                                   std::move(photo_input_file), std::move(video_input_file),
                                                   main_frame_timestamp, nullptr),
           {{user_id}}));
-    } else if (user_id == td_->user_manager_->get_my_id()) {
-      send_query(G()->net_query_creator().create(
-          telegram_api::photos_uploadProfilePhoto(flags, is_fallback, nullptr, std::move(photo_input_file),
-                                                  std::move(video_input_file), main_frame_timestamp, nullptr),
-          {{"me"}}));
     } else {
-      auto r_input_user = td_->user_manager_->get_input_user(user_id);
-      if (r_input_user.is_error()) {
-        return on_error(r_input_user.move_as_error());
-      }
       send_query(G()->net_query_creator().create(
-          telegram_api::photos_uploadContactProfilePhoto(flags, only_suggest, !only_suggest, r_input_user.move_as_ok(),
+          telegram_api::photos_uploadContactProfilePhoto(flags, only_suggest, !only_suggest, std::move(input_user),
                                                          std::move(photo_input_file), std::move(video_input_file),
                                                          main_frame_timestamp, nullptr),
           {{user_id}}));
@@ -559,31 +558,28 @@ class UploadProfilePhotoQuery final : public Td::ResultHandler {
     is_fallback_ = is_fallback;
     only_suggest_ = only_suggest;
 
-    if (td_->user_manager_->is_user_bot(user_id) != td_->auth_manager_->is_bot()) {
+    bool is_me = user_id == td_->user_manager_->get_my_id();
+    telegram_api::object_ptr<telegram_api::InputUser> input_user;
+    if (!is_me) {
       auto r_input_user = td_->user_manager_->get_input_user(user_id);
       if (r_input_user.is_error()) {
         return on_error(r_input_user.move_as_error());
       }
-      int32 flags = telegram_api::photos_uploadProfilePhoto::VIDEO_EMOJI_MARKUP_MASK |
-                    telegram_api::photos_uploadProfilePhoto::BOT_MASK;
+      input_user = r_input_user.move_as_ok();
+    }
+    if (td_->user_manager_->is_user_bot(user_id) != td_->auth_manager_->is_bot() || is_me) {
+      int32 flags = telegram_api::photos_uploadProfilePhoto::VIDEO_EMOJI_MARKUP_MASK;
+      if (input_user != nullptr) {
+        flags |= telegram_api::photos_uploadProfilePhoto::BOT_MASK;
+      }
       send_query(G()->net_query_creator().create(
-          telegram_api::photos_uploadProfilePhoto(flags, is_fallback, r_input_user.move_as_ok(), nullptr, nullptr, 0.0,
+          telegram_api::photos_uploadProfilePhoto(flags, is_fallback, std::move(input_user), nullptr, nullptr, 0.0,
                                                   sticker_photo_size->get_input_video_size_object(td_)),
           {{user_id}}));
-    } else if (user_id == td_->user_manager_->get_my_id()) {
-      int32 flags = telegram_api::photos_uploadProfilePhoto::VIDEO_EMOJI_MARKUP_MASK;
-      send_query(G()->net_query_creator().create(
-          telegram_api::photos_uploadProfilePhoto(flags, is_fallback, nullptr, nullptr, nullptr, 0.0,
-                                                  sticker_photo_size->get_input_video_size_object(td_)),
-          {{"me"}}));
     } else {
-      auto r_input_user = td_->user_manager_->get_input_user(user_id);
-      if (r_input_user.is_error()) {
-        return on_error(r_input_user.move_as_error());
-      }
       int32 flags = telegram_api::photos_uploadContactProfilePhoto::VIDEO_EMOJI_MARKUP_MASK;
       send_query(G()->net_query_creator().create(
-          telegram_api::photos_uploadContactProfilePhoto(flags, only_suggest, !only_suggest, r_input_user.move_as_ok(),
+          telegram_api::photos_uploadContactProfilePhoto(flags, only_suggest, !only_suggest, std::move(input_user),
                                                          nullptr, nullptr, 0.0,
                                                          sticker_photo_size->get_input_video_size_object(td_)),
           {{user_id}}));
@@ -1842,6 +1838,8 @@ void UserManager::User::store(StorerT &storer) const {
     STORE_FLAG(has_paid_message_star_count);
     STORE_FLAG(has_peer_color_collectible);
     STORE_FLAG(has_bot_forum_view);
+    STORE_FLAG(has_live_story);
+    STORE_FLAG(can_bot_create_topics);
     END_STORE_FLAGS();
   }
   store(first_name, storer);
@@ -1991,6 +1989,8 @@ void UserManager::User::parse(ParserT &parser) {
     PARSE_FLAG(has_paid_message_star_count);
     PARSE_FLAG(has_peer_color_collectible);
     PARSE_FLAG(has_bot_forum_view);
+    PARSE_FLAG(has_live_story);
+    PARSE_FLAG(can_bot_create_topics);
     END_PARSE_FLAGS();
   }
   parse(first_name, parser);
@@ -2211,6 +2211,8 @@ void UserManager::UserFull::store(StorerT &storer) const {
     STORE_FLAG(has_main_profile_tab);
     STORE_FLAG(has_first_saved_music_file_id);
     STORE_FLAG(has_note);
+    STORE_FLAG(noforwards_my_enabled);
+    STORE_FLAG(noforwards_peer_enabled);
     END_STORE_FLAGS();
   }
   if (has_about) {
@@ -2413,6 +2415,8 @@ void UserManager::UserFull::parse(ParserT &parser) {
     PARSE_FLAG(has_main_profile_tab);
     PARSE_FLAG(has_first_saved_music_file_id);
     PARSE_FLAG(has_note);
+    PARSE_FLAG(noforwards_my_enabled);
+    PARSE_FLAG(noforwards_peer_enabled);
     END_PARSE_FLAGS();
   }
   if (has_about) {
@@ -2694,6 +2698,9 @@ UserManager::UserManager(Td *td, ActorShared<> parent) : td_(td), parent_(std::m
   user_rating_timeout_.set_callback(on_user_rating_timeout_callback);
   user_rating_timeout_.set_callback_data(static_cast<void *>(this));
 
+  noforwards_request_timeout_.set_callback(on_noforwards_request_timeout_callback);
+  noforwards_request_timeout_.set_callback_data(static_cast<void *>(this));
+
   get_user_queries_.set_merge_function([this](vector<int64> query_ids, Promise<Unit> &&promise) {
     TRY_STATUS_PROMISE(promise, G()->close_status());
     auto input_users = transform(query_ids, [this](int64 query_id) { return get_input_user_force(UserId(query_id)); });
@@ -2714,9 +2721,10 @@ UserManager::~UserManager() {
       G()->get_gc_scheduler_id(), users_, users_full_, user_photos_, unknown_users_, pending_user_photos_,
       user_profile_photo_file_source_ids_, user_saved_music_, user_saved_music_file_source_ids_, my_photo_file_id_,
       user_full_file_source_ids_, secret_chats_, unknown_secret_chats_, secret_chats_with_user_);
-  Scheduler::instance()->destroy_on_scheduler(G()->get_gc_scheduler_id(), loaded_from_database_users_,
-                                              unavailable_user_fulls_, loaded_from_database_secret_chats_,
-                                              resolved_phone_numbers_, all_imported_contacts_, restricted_user_ids_);
+  Scheduler::instance()->destroy_on_scheduler(
+      G()->get_gc_scheduler_id(), loaded_from_database_users_, unavailable_user_fulls_,
+      loaded_from_database_secret_chats_, resolved_phone_numbers_, all_imported_contacts_, restricted_user_ids_,
+      pending_get_user_photos_requests_, pending_get_user_saved_music_requests_);
 }
 
 void UserManager::tear_down() {
@@ -2818,6 +2826,31 @@ void UserManager::on_user_rating_timeout(UserId user_id) {
   }
 
   update_user_full(user_full, user_id, "on_user_rating_timeout");
+}
+
+void UserManager::on_noforwards_request_timeout_callback(void *user_manager_ptr, int64 request_id_long) {
+  if (G()->close_flag()) {
+    return;
+  }
+
+  auto user_manager = static_cast<UserManager *>(user_manager_ptr);
+  send_closure_later(user_manager->actor_id(user_manager), &UserManager::on_noforwards_request_timeout,
+                     static_cast<int32>(request_id_long));
+}
+
+void UserManager::on_noforwards_request_timeout(int32 request_id) {
+  if (G()->close_flag()) {
+    return;
+  }
+
+  auto it = noforwards_request_message_ids_.find(request_id);
+  if (it == noforwards_request_message_ids_.end()) {
+    return;
+  }
+  auto message_full_id = it->second;
+  unregister_noforwards_request(message_full_id);
+  td_->messages_manager_->on_external_update_message_content(message_full_id, "on_noforwards_request_timeout", false,
+                                                             true);
 }
 
 UserId UserManager::get_user_id(const telegram_api::object_ptr<telegram_api::User> &user) {
@@ -3004,6 +3037,7 @@ void UserManager::set_my_online_status(bool is_online, bool send_update, bool is
 
 void UserManager::on_get_user(telegram_api::object_ptr<telegram_api::User> &&user_ptr, const char *source) {
   LOG(DEBUG) << "Receive from " << source << ' ' << to_string(user_ptr);
+  CHECK(user_ptr != nullptr);
   int32 constructor_id = user_ptr->get_id();
   if (constructor_id == telegram_api::userEmpty::ID) {
     auto user = move_tl_object_as<telegram_api::userEmpty>(user_ptr);
@@ -3096,6 +3130,7 @@ void UserManager::on_get_user(telegram_api::object_ptr<telegram_api::User> &&use
   bool can_be_added_to_attach_menu = user->bot_attach_menu_;
   bool has_main_app = user->bot_has_main_app_;
   bool has_bot_forum_view = user->bot_forum_view_;
+  bool can_bot_create_topics = has_bot_forum_view && !user->bot_forum_can_manage_topics_;
   bool attach_menu_enabled = user->attach_menu_enabled_;
   bool is_scam = user->scam_;
   bool can_be_edited_bot = user->bot_can_edit_;
@@ -3106,14 +3141,14 @@ void UserManager::on_get_user(telegram_api::object_ptr<telegram_api::User> &&use
   bool need_location_bot = user->bot_inline_geo_;
   bool need_apply_min_photo = user->apply_min_photo_;
   bool is_fake = user->fake_;
-  bool stories_available = user->stories_max_id_ > 0;
+  bool stories_available = user->stories_max_id_ != nullptr && user->stories_max_id_->max_id_ > 0;
   bool stories_unavailable = user->stories_unavailable_;
   bool stories_hidden = user->stories_hidden_;
   bool contact_require_premium = user->contact_require_premium_;
   auto paid_message_star_count = StarManager::get_star_count(user->send_paid_messages_stars_);
 
   if (!is_bot && (!can_join_groups || can_read_all_group_messages || can_be_added_to_attach_menu || can_be_edited_bot ||
-                  has_main_app || has_bot_forum_view || is_inline_bot || is_business_bot)) {
+                  has_main_app || has_bot_forum_view || can_bot_create_topics || is_inline_bot || is_business_bot)) {
     LOG(ERROR) << "Receive not bot " << user_id << " with bot properties from " << source;
     can_join_groups = true;
     can_read_all_group_messages = false;
@@ -3121,6 +3156,7 @@ void UserManager::on_get_user(telegram_api::object_ptr<telegram_api::User> &&use
     can_be_edited_bot = false;
     has_main_app = false;
     has_bot_forum_view = false;
+    can_bot_create_topics = false;
     is_inline_bot = false;
     is_business_bot = false;
   }
@@ -3141,6 +3177,7 @@ void UserManager::on_get_user(telegram_api::object_ptr<telegram_api::User> &&use
     can_be_edited_bot = false;
     has_main_app = false;
     has_bot_forum_view = false;
+    can_bot_create_topics = false;
     is_inline_bot = false;
     is_business_bot = false;
     inline_query_placeholder = string();
@@ -3156,7 +3193,7 @@ void UserManager::on_get_user(telegram_api::object_ptr<telegram_api::User> &&use
       is_scam != u->is_scam || is_fake != u->is_fake || is_inline_bot != u->is_inline_bot ||
       is_business_bot != u->is_business_bot || inline_query_placeholder != u->inline_query_placeholder ||
       need_location_bot != u->need_location_bot || can_be_added_to_attach_menu != u->can_be_added_to_attach_menu ||
-      has_main_app != u->has_main_app) {
+      has_main_app != u->has_main_app || can_bot_create_topics != u->can_bot_create_topics) {
     if (is_bot != u->is_bot) {
       LOG_IF(ERROR, !is_deleted && !u->is_deleted && u->is_received)
           << "User.is_bot has changed for " << user_id << "/" << u->usernames << " from " << source << " from "
@@ -3176,6 +3213,7 @@ void UserManager::on_get_user(telegram_api::object_ptr<telegram_api::User> &&use
     u->need_location_bot = need_location_bot;
     u->can_be_added_to_attach_menu = can_be_added_to_attach_menu;
     u->has_main_app = has_main_app;
+    u->can_bot_create_topics = can_bot_create_topics;
 
     LOG(DEBUG) << "Info has changed for " << user_id;
     u->is_changed = true;
@@ -3289,7 +3327,7 @@ void UserManager::on_get_user(telegram_api::object_ptr<telegram_api::User> &&use
     }
     if (stories_available || stories_unavailable) {
       // update at the end, because it calls need_poll_user_active_stories
-      on_update_user_story_ids_impl(u, user_id, StoryId(user->stories_max_id_), StoryId());
+      on_update_user_story_ids_impl(u, user_id, std::move(user->stories_max_id_), StoryId());
     }
     auto restriction_reasons = get_restriction_reasons(std::move(user->restriction_reason_));
     if (restriction_reasons != u->restriction_reasons) {
@@ -3648,7 +3686,9 @@ void UserManager::on_update_user_emoji_status(User *u, UserId user_id, unique_pt
   }
 }
 
-void UserManager::on_update_user_story_ids(UserId user_id, StoryId max_active_story_id, StoryId max_read_story_id) {
+void UserManager::on_update_user_story_ids(UserId user_id,
+                                           telegram_api::object_ptr<telegram_api::recentStory> &&recent_story,
+                                           StoryId max_read_story_id) {
   if (!user_id.is_valid()) {
     LOG(ERROR) << "Receive invalid " << user_id;
     return;
@@ -3656,17 +3696,24 @@ void UserManager::on_update_user_story_ids(UserId user_id, StoryId max_active_st
 
   User *u = get_user_force(user_id, "on_update_user_story_ids");
   if (u != nullptr) {
-    on_update_user_story_ids_impl(u, user_id, max_active_story_id, max_read_story_id);
+    on_update_user_story_ids_impl(u, user_id, std::move(recent_story), max_read_story_id);
     update_user(u, user_id);
   } else {
     LOG(INFO) << "Ignore update user story identifiers about unknown " << user_id;
   }
 }
 
-void UserManager::on_update_user_story_ids_impl(User *u, UserId user_id, StoryId max_active_story_id,
+void UserManager::on_update_user_story_ids_impl(User *u, UserId user_id,
+                                                telegram_api::object_ptr<telegram_api::recentStory> &&recent_story,
                                                 StoryId max_read_story_id) {
   if (td_->auth_manager_->is_bot()) {
     return;
+  }
+  StoryId max_active_story_id;
+  bool has_live_story = false;
+  if (recent_story != nullptr) {
+    max_active_story_id = StoryId(recent_story->max_id_);
+    has_live_story = recent_story->live_;
   }
   if (max_active_story_id != StoryId() && !max_active_story_id.is_server()) {
     LOG(ERROR) << "Receive max active " << max_active_story_id << " for " << user_id;
@@ -3676,8 +3723,17 @@ void UserManager::on_update_user_story_ids_impl(User *u, UserId user_id, StoryId
     LOG(ERROR) << "Receive max read " << max_read_story_id << " for " << user_id;
     return;
   }
+  if (has_live_story && max_active_story_id == StoryId()) {
+    LOG(ERROR) << "Receive live story without identifier for " << user_id;
+    return;
+  }
 
-  auto has_unread_stories = get_user_has_unread_stories(u);
+  auto active_story_state = get_user_active_story_state(u);
+  if (u->has_live_story != has_live_story) {
+    LOG(DEBUG) << "Change has_live_story of " << user_id << " to " << has_live_story;
+    u->has_live_story = has_live_story;
+    u->need_save_to_database = true;
+  }
   if (u->max_active_story_id != max_active_story_id) {
     LOG(DEBUG) << "Change last active story of " << user_id << " from " << u->max_active_story_id << " to "
                << max_active_story_id;
@@ -3706,8 +3762,8 @@ void UserManager::on_update_user_story_ids_impl(User *u, UserId user_id, StoryId
     u->max_read_story_id = max_read_story_id;
     u->need_save_to_database = true;
   }
-  if (has_unread_stories != get_user_has_unread_stories(u)) {
-    LOG(DEBUG) << "Change has_unread_stories of " << user_id << " to " << !has_unread_stories;
+  if (active_story_state != get_user_active_story_state(u)) {
+    LOG(DEBUG) << "Change active_story_state of " << user_id;
     u->is_changed = true;
   }
 }
@@ -3727,15 +3783,15 @@ void UserManager::on_update_user_max_read_story_id(User *u, UserId user_id, Stor
     return;
   }
 
-  auto has_unread_stories = get_user_has_unread_stories(u);
+  auto active_story_state = get_user_active_story_state(u);
   if (max_read_story_id.get() > u->max_read_story_id.get()) {
     LOG(DEBUG) << "Change last read story of " << user_id << " from " << u->max_read_story_id << " to "
                << max_read_story_id;
     u->max_read_story_id = max_read_story_id;
     u->need_save_to_database = true;
   }
-  if (has_unread_stories != get_user_has_unread_stories(u)) {
-    LOG(DEBUG) << "Change has_unread_stories of " << user_id << " to " << !has_unread_stories;
+  if (active_story_state != get_user_active_story_state(u)) {
+    LOG(DEBUG) << "Change active_story_state of " << user_id;
     u->is_changed = true;
   }
 }
@@ -4327,6 +4383,39 @@ void UserManager::on_update_user_full_wallpaper_overridden(UserFull *user_full, 
   }
 }
 
+void UserManager::on_update_user_noforwards(UserId user_id, bool update_my, bool noforwards_my_enabled,
+                                            bool update_peer, bool noforwards_peer_enabled) {
+  if (!user_id.is_valid()) {
+    LOG(ERROR) << "Receive invalid " << user_id;
+    return;
+  }
+
+  UserFull *user_full = get_user_full_force(user_id, "on_update_user_noforwards");
+  if (user_full == nullptr) {
+    return;
+  }
+  on_update_user_full_noforwards(user_full, update_my, noforwards_my_enabled, update_peer, noforwards_peer_enabled);
+  update_user_full(user_full, user_id, "on_update_user_noforwards");
+}
+
+void UserManager::on_update_user_full_noforwards(UserFull *user_full, bool update_my, bool noforwards_my_enabled,
+                                                 bool update_peer, bool noforwards_peer_enabled) const {
+  CHECK(user_full != nullptr);
+  bool old_noforwards = user_full->noforwards_my_enabled || user_full->noforwards_peer_enabled;
+  if (update_my && user_full->noforwards_my_enabled != noforwards_my_enabled) {
+    user_full->noforwards_my_enabled = noforwards_my_enabled;
+    user_full->need_save_to_database = true;
+  }
+  if (update_peer && user_full->noforwards_peer_enabled != noforwards_peer_enabled) {
+    user_full->noforwards_peer_enabled = noforwards_peer_enabled;
+    user_full->need_save_to_database = true;
+  }
+  bool new_noforwards = user_full->noforwards_my_enabled || user_full->noforwards_peer_enabled;
+  if (old_noforwards != new_noforwards) {
+    user_full->is_has_protected_content_changed = true;
+  }
+}
+
 void UserManager::on_update_bot_menu_button(UserId bot_user_id,
                                             telegram_api::object_ptr<telegram_api::BotMenuButton> &&bot_menu_button) {
   if (!bot_user_id.is_valid()) {
@@ -4546,6 +4635,7 @@ void UserManager::on_update_phone_number_privacy() {
   CHECK(!td_->auth_manager_->is_bot());
   // all UserFull.need_phone_number_privacy_exception can be outdated now,
   // so mark all of them as expired
+  LOG(INFO) << "Updated phone number privacy settings";
   users_full_.foreach([&](const UserId &user_id, unique_ptr<UserFull> &user_full) { user_full->expires_at = 0.0; });
 }
 
@@ -4579,6 +4669,7 @@ void UserManager::on_update_freeze_state(int32 freeze_since_date, int32 freeze_u
 }
 
 void UserManager::invalidate_user_full(UserId user_id) {
+  LOG(INFO) << "Invalidate full information about " << user_id;
   auto user_full = get_user_full_force(user_id, "invalidate_user_full");
   if (user_full != nullptr) {
     td_->dialog_manager_->on_dialog_info_full_invalidated(DialogId(user_id));
@@ -4876,9 +4967,9 @@ UserManager::User *UserManager::get_user_force(UserId user_id, const char *sourc
     auto user = telegram_api::make_object<telegram_api::user>(
         flags, false, false, false, false, is_bot, false, is_private_bot, is_verified, false, false, false, is_support,
         false, need_apply_min_photo, false, false, false, false, 0, false, false, false, false, false, false, false,
-        false, user_id.get(), 1, first_name, string(), username, phone_number, std::move(profile_photo), nullptr,
+        false, false, user_id.get(), 1, first_name, string(), username, phone_number, std::move(profile_photo), nullptr,
         bot_info_version, Auto(), string(), string(), nullptr,
-        vector<telegram_api::object_ptr<telegram_api::username>>(), 0, nullptr, nullptr, 0, 0, 0);
+        vector<telegram_api::object_ptr<telegram_api::username>>(), nullptr, nullptr, nullptr, 0, 0, 0);
     on_get_user(std::move(user), "get_user_force");
     u = get_user(user_id);
     CHECK(u != nullptr && u->is_received);
@@ -5012,13 +5103,13 @@ telegram_api::object_ptr<telegram_api::InputUser> UserManager::get_input_user_fo
 }
 
 bool UserManager::have_input_peer_user(UserId user_id, AccessRights access_rights) const {
-  if (user_id == get_my_id()) {
-    return true;
-  }
   return have_input_peer_user(get_user(user_id), user_id, access_rights);
 }
 
 bool UserManager::have_input_peer_user(const User *u, UserId user_id, AccessRights access_rights) const {
+  if (user_id == get_my_id()) {
+    return true;
+  }
   if (u == nullptr || u->access_hash == -1 || u->is_min_access_hash) {
     if (u == nullptr) {
       LOG(DEBUG) << "Have no user";
@@ -5163,12 +5254,13 @@ Result<UserManager::BotData> UserManager::get_bot_data(UserId user_id) const {
   }
 
   BotData bot_data;
-  bot_data.username = u->usernames.get_first_username();
+  bot_data.username = u->usernames.get_first_username().str();
   bot_data.can_be_edited = u->can_be_edited_bot;
   bot_data.can_join_groups = u->can_join_groups;
   bot_data.can_read_all_group_messages = u->can_read_all_group_messages;
   bot_data.has_main_app = u->has_main_app;
   bot_data.has_bot_forum_view = u->has_bot_forum_view;
+  bot_data.can_bot_create_topics = u->can_bot_create_topics;
   bot_data.is_inline = u->is_inline_bot;
   bot_data.is_business = u->is_business_bot;
   bot_data.need_location = u->need_location_bot;
@@ -5352,22 +5444,23 @@ string UserManager::get_secret_chat_title(SecretChatId secret_chat_id) const {
 
 RestrictedRights UserManager::get_user_default_permissions(UserId user_id) const {
   auto u = get_user(user_id);
-  if (u == nullptr || user_id == get_replies_bot_user_id() || user_id == get_verification_codes_bot_user_id()) {
+  if ((u == nullptr && user_id != get_my_id()) || user_id == get_replies_bot_user_id() ||
+      user_id == get_verification_codes_bot_user_id()) {
     return RestrictedRights(false, false, false, false, false, false, false, false, false, false, false, false, false,
-                            false, false, u != nullptr, false, ChannelType::Unknown);
+                            false, false, u != nullptr, false, false, ChannelType::Unknown);
   }
   return RestrictedRights(true, true, true, true, true, true, true, true, true, true, true, true, true, false, false,
-                          true, false, ChannelType::Unknown);
+                          true, false, false, ChannelType::Unknown);
 }
 
 RestrictedRights UserManager::get_secret_chat_default_permissions(SecretChatId secret_chat_id) const {
   auto c = get_secret_chat(secret_chat_id);
   if (c == nullptr) {
     return RestrictedRights(false, false, false, false, false, false, false, false, false, false, false, false, false,
-                            false, false, false, false, ChannelType::Unknown);
+                            false, false, false, false, false, ChannelType::Unknown);
   }
   return RestrictedRights(true, true, true, true, true, true, true, true, true, true, true, true, true, false, false,
-                          false, false, ChannelType::Unknown);
+                          false, false, false, ChannelType::Unknown);
 }
 
 td_api::object_ptr<td_api::emojiStatus> UserManager::get_user_emoji_status_object(UserId user_id) const {
@@ -5385,6 +5478,38 @@ td_api::object_ptr<td_api::emojiStatus> UserManager::get_secret_chat_emoji_statu
     return nullptr;
   }
   return get_user_emoji_status_object(c->user_id);
+}
+
+bool UserManager::get_user_has_protected_content_force(UserId user_id) {
+  auto user_full = get_user_full_force(user_id, "get_user_has_protected_content_force");
+  if (user_full != nullptr) {
+    return user_full->noforwards_my_enabled || user_full->noforwards_peer_enabled;
+  }
+  return false;
+}
+
+bool UserManager::get_user_has_protected_content(UserId user_id) const {
+  auto user_full = get_user_full(user_id);
+  if (user_full != nullptr) {
+    return user_full->noforwards_my_enabled || user_full->noforwards_peer_enabled;
+  }
+  return false;
+}
+
+bool UserManager::get_user_has_protected_content_force_by_me(UserId user_id) {
+  auto user_full = get_user_full_force(user_id, "get_user_has_protected_content_force_by_me");
+  if (user_full != nullptr) {
+    return user_full->noforwards_my_enabled;
+  }
+  return false;
+}
+
+bool UserManager::get_user_has_protected_content_force_by_other(UserId user_id) {
+  auto user_full = get_user_full_force(user_id, "get_user_has_protected_content_force_by_other");
+  if (user_full != nullptr) {
+    return user_full->noforwards_peer_enabled;
+  }
+  return false;
 }
 
 bool UserManager::get_user_stories_hidden(UserId user_id) const {
@@ -5482,14 +5607,14 @@ void UserManager::for_each_secret_chat_with_user(UserId user_id, const std::func
   }
 }
 
-string UserManager::get_user_first_username(UserId user_id) const {
+Slice UserManager::get_user_first_username(UserId user_id) const {
   if (!user_id.is_valid()) {
-    return string();
+    return Slice();
   }
 
   auto u = get_user(user_id);
   if (u == nullptr) {
-    return string();
+    return Slice();
   }
   return u->usernames.get_first_username();
 }
@@ -5707,7 +5832,9 @@ void UserManager::set_business_profile_photo(BusinessConnectionId business_conne
 
 void UserManager::set_profile_photo(const td_api::object_ptr<td_api::InputChatPhoto> &input_photo, bool is_fallback,
                                     Promise<Unit> &&promise) {
-  dismiss_suggested_action(SuggestedAction{SuggestedAction::Type::UserpicSetup}, Promise<Unit>());
+  if (!td_->auth_manager_->is_bot()) {
+    dismiss_suggested_action(SuggestedAction{SuggestedAction::Type::UserpicSetup}, Promise<Unit>());
+  }
   set_profile_photo_impl(get_my_id(), input_photo, is_fallback, false, std::move(promise));
 }
 
@@ -5790,6 +5917,9 @@ void UserManager::set_user_profile_photo(UserId user_id, const td_api::object_pt
     return promise.set_error(400, "Can't set personal or suggest photo to bots");
   }
   if (input_photo == nullptr) {
+    if (only_suggest) {
+      return promise.set_error(400, "Photo must be non-empty");
+    }
     td_->create_handler<DeleteContactProfilePhotoQuery>(std::move(promise))->send(user_id, std::move(input_user));
     return;
   }
@@ -5812,6 +5942,7 @@ void UserManager::send_update_profile_photo_query(UserId user_id, FileId file_id
 void UserManager::upload_profile_photo(UserId user_id, FileUploadId file_upload_id, bool is_fallback, bool only_suggest,
                                        bool is_animation, double main_frame_timestamp, Promise<Unit> &&promise,
                                        int reupload_count, vector<int> bad_parts) {
+  TRY_STATUS_PROMISE(promise, G()->close_status());
   CHECK(file_upload_id.is_valid());
   bool is_inserted =
       being_uploaded_profile_photos_
@@ -6018,7 +6149,11 @@ bool UserManager::delete_my_profile_photo_from_cache(int64 profile_photo_id) {
       user_photos->count -= narrow_cast<int32>(removed_photos);
       // offset was not changed
       CHECK(user_photos->count >= 0);
-    } else if (user_photos->offset == 0) {
+      if (user_photos->count == 0) {
+        CHECK(user_photos->photos.empty());
+        user_photos->offset = 0;
+      }
+    } else if (user_photos->offset == 0 && static_cast<size_t>(user_photos->count) > user_photos->photos.size()) {
       // failed to find photo to remove from cache, but offset doesn't need to be adjusted
       user_photos->count--;
     } else {
@@ -6051,12 +6186,13 @@ bool UserManager::delete_my_profile_photo_from_cache(int64 profile_photo_id) {
 
     // update Photo in UserFull
     if (user_full != nullptr) {
-      if (user_full->fallback_photo.id.get() == profile_photo_id) {
+      if (!user_full->fallback_photo.is_empty() && user_full->fallback_photo.id.get() == profile_photo_id) {
         LOG(INFO) << "Drop full public photo of " << user_id;
-        user_full->photo = Photo();
+        user_full->fallback_photo = Photo();
         user_full->is_changed = true;
       } else if (have_new_photo) {
-        if (user_full->photo.id.get() == profile_photo_id && user_photos->photos[0] != user_full->photo) {
+        if (!user_full->photo.is_empty() && user_full->photo.id.get() == profile_photo_id &&
+            user_photos->photos[0] != user_full->photo) {
           LOG(INFO) << "Update full photo of " << user_id << " to " << user_photos->photos[0];
           user_full->photo = user_photos->photos[0];
           user_full->is_changed = true;
@@ -6087,7 +6223,7 @@ bool UserManager::delete_my_profile_photo_from_cache(int64 profile_photo_id) {
 void UserManager::delete_profile_photo(int64 profile_photo_id, bool is_recursive, Promise<Unit> &&promise) {
   TRY_STATUS_PROMISE(promise, G()->close_status());
   const UserFull *user_full = get_user_full_force(get_my_id(), "delete_profile_photo");
-  if (user_full == nullptr) {
+  if (user_full == nullptr || (td_->auth_manager_->is_bot() && !is_recursive)) {
     // must load UserFull first, because fallback photo can't be deleted via DeleteProfilePhotoQuery
     if (is_recursive) {
       return promise.set_error(500, "Failed to load UserFullInfo");
@@ -6099,12 +6235,20 @@ void UserManager::delete_profile_photo(int64 profile_photo_id, bool is_recursive
           }
           send_closure(actor_id, &UserManager::delete_profile_photo, profile_photo_id, true, std::move(promise));
         });
-    reload_user_full(get_my_id(), std::move(reload_promise), "delete_profile_photo");
-    return;
+    return reload_user_full(get_my_id(), std::move(reload_promise), "delete_profile_photo");
   }
-  if (user_full->photo.id.get() == profile_photo_id || user_full->fallback_photo.id.get() == profile_photo_id) {
+  if (td_->auth_manager_->is_bot()) {
+    if (user_full->photo.is_empty()) {
+      return promise.set_value(Unit());
+    }
+    profile_photo_id = user_full->photo.id.get();
+  }
+  bool update_main_photo = !user_full->photo.is_empty() && user_full->photo.id.get() == profile_photo_id;
+  bool update_fallback_photo =
+      !user_full->fallback_photo.is_empty() && user_full->fallback_photo.id.get() == profile_photo_id;
+  if (update_main_photo || update_fallback_photo) {
     td_->create_handler<UpdateProfilePhotoQuery>(std::move(promise))
-        ->send(get_my_id(), FileId(), profile_photo_id, user_full->fallback_photo.id.get() == profile_photo_id,
+        ->send(get_my_id(), FileId(), profile_photo_id, update_fallback_photo,
                telegram_api::make_object<telegram_api::inputPhotoEmpty>());
     return;
   }
@@ -6531,7 +6675,7 @@ void UserManager::get_user_profile_photos(UserId user_id, int32 offset, int32 li
 
   apply_pending_user_photo(u, user_id, "get_user_profile_photos");
 
-  auto user_photos = add_user_photos(user_id);
+  const auto *user_photos = add_user_photos(user_id);
   if (user_photos->count != -1) {  // know photo count
     CHECK(user_photos->offset != -1);
     LOG(INFO) << "Have " << user_photos->count << " cached user profile photos at offset " << user_photos->offset;
@@ -6562,18 +6706,20 @@ void UserManager::get_user_profile_photos(UserId user_id, int32 offset, int32 li
   pending_request.offset = offset;
   pending_request.limit = limit;
   pending_request.promise = std::move(promise);
-  user_photos->pending_requests.push_back(std::move(pending_request));
-  if (user_photos->pending_requests.size() != 1u) {
+  auto &requests = pending_get_user_photos_requests_[user_id];
+  requests.push_back(std::move(pending_request));
+  if (requests.size() != 1u) {
     return;
   }
 
-  send_get_user_photos_query(user_id, user_photos);
+  send_get_user_photos_query(user_id, user_photos, requests);
 }
 
-void UserManager::send_get_user_photos_query(UserId user_id, const UserPhotos *user_photos) {
-  CHECK(!user_photos->pending_requests.empty());
-  auto offset = user_photos->pending_requests[0].offset;
-  auto limit = user_photos->pending_requests[0].limit;
+void UserManager::send_get_user_photos_query(UserId user_id, const UserPhotos *user_photos,
+                                             const vector<PendingGetPhotoRequest> &requests) {
+  CHECK(!requests.empty());
+  auto offset = requests[0].offset;
+  auto limit = requests[0].limit;
 
   if (user_photos->count != -1 && offset >= user_photos->offset) {
     int32 cache_end = user_photos->offset + narrow_cast<int32>(user_photos->photos.size());
@@ -6595,15 +6741,16 @@ void UserManager::send_get_user_photos_query(UserId user_id, const UserPhotos *u
 
 void UserManager::on_get_user_profile_photos(UserId user_id, Result<Unit> &&result) {
   G()->ignore_result_if_closing(result);
-  auto user_photos = add_user_photos(user_id);
-  auto pending_requests = std::move(user_photos->pending_requests);
+  auto pending_requests = std::move(pending_get_user_photos_requests_[user_id]);
   CHECK(!pending_requests.empty());
+  pending_get_user_photos_requests_.erase(user_id);
   if (result.is_error()) {
     for (auto &request : pending_requests) {
       request.promise.set_error(result.error().clone());
     }
     return;
   }
+  const auto *user_photos = add_user_photos(user_id);
   if (user_photos->count == -1) {
     CHECK(have_min_user(user_id));
     // received result has just been dropped; resend request
@@ -6614,8 +6761,9 @@ void UserManager::on_get_user_profile_photos(UserId user_id, Result<Unit> &&resu
         return;
       }
     }
-    user_photos->pending_requests = std::move(pending_requests);
-    return send_get_user_photos_query(user_id, user_photos);
+    auto &requests = pending_get_user_photos_requests_[user_id];
+    requests = std::move(pending_requests);
+    return send_get_user_photos_query(user_id, user_photos, requests);
   }
 
   CHECK(user_photos->offset != -1);
@@ -6656,10 +6804,11 @@ void UserManager::on_get_user_profile_photos(UserId user_id, Result<Unit> &&resu
   }
 
   if (!left_requests.empty()) {
-    bool need_send = user_photos->pending_requests.empty();
-    append(user_photos->pending_requests, std::move(left_requests));
+    auto &requests = pending_get_user_photos_requests_[user_id];
+    bool need_send = requests.empty();
+    append(requests, std::move(left_requests));
     if (need_send) {
-      send_get_user_photos_query(user_id, user_photos);
+      send_get_user_photos_query(user_id, user_photos, requests);
     }
   }
 }
@@ -6747,7 +6896,7 @@ void UserManager::on_get_user_photos(UserId user_id, int32 offset, int32 limit, 
             << offset << " and limit " << limit;
   UserPhotos *user_photos = add_user_photos(user_id);
   user_photos->count = total_count;
-  CHECK(!user_photos->pending_requests.empty());
+  CHECK(pending_get_user_photos_requests_.count(user_id));
 
   if (user_photos->offset == -1) {
     user_photos->offset = 0;
@@ -6970,7 +7119,7 @@ void UserManager::get_user_saved_music(UserId user_id, int32 offset, int32 limit
     return promise.set_error(400, "User not found");
   }
 
-  auto user_saved_music = add_user_saved_music(user_id);
+  const auto *user_saved_music = add_user_saved_music(user_id);
   if (user_saved_music->count != -1) {  // know saved music count
     CHECK(user_saved_music->offset != -1);
     LOG(INFO) << "Have " << user_saved_music->count << " cached saved music files at offset "
@@ -7002,18 +7151,20 @@ void UserManager::get_user_saved_music(UserId user_id, int32 offset, int32 limit
   pending_request.offset = offset;
   pending_request.limit = limit;
   pending_request.promise = std::move(promise);
-  user_saved_music->pending_requests.push_back(std::move(pending_request));
-  if (user_saved_music->pending_requests.size() != 1u) {
+  auto &requests = pending_get_user_saved_music_requests_[user_id];
+  requests.push_back(std::move(pending_request));
+  if (requests.size() != 1u) {
     return;
   }
 
-  send_get_user_saved_music_query(user_id, user_saved_music);
+  send_get_user_saved_music_query(user_id, user_saved_music, requests);
 }
 
-void UserManager::send_get_user_saved_music_query(UserId user_id, const UserSavedMusic *user_saved_music) {
-  CHECK(!user_saved_music->pending_requests.empty());
-  auto offset = user_saved_music->pending_requests[0].offset;
-  auto limit = user_saved_music->pending_requests[0].limit;
+void UserManager::send_get_user_saved_music_query(UserId user_id, const UserSavedMusic *user_saved_music,
+                                                  const vector<PendingGetSavedMusicRequest> &requests) {
+  CHECK(!requests.empty());
+  auto offset = requests[0].offset;
+  auto limit = requests[0].limit;
 
   if (user_saved_music->count != -1 && offset >= user_saved_music->offset) {
     int32 cache_end = user_saved_music->offset + narrow_cast<int32>(user_saved_music->saved_music_file_ids.size());
@@ -7034,15 +7185,16 @@ void UserManager::send_get_user_saved_music_query(UserId user_id, const UserSave
 
 void UserManager::finish_get_user_saved_music(UserId user_id, Result<Unit> &&result) {
   G()->ignore_result_if_closing(result);
-  auto user_saved_music = add_user_saved_music(user_id);
-  auto pending_requests = std::move(user_saved_music->pending_requests);
+  auto pending_requests = std::move(pending_get_user_saved_music_requests_[user_id]);
   CHECK(!pending_requests.empty());
+  pending_get_user_saved_music_requests_.erase(user_id);
   if (result.is_error()) {
     for (auto &request : pending_requests) {
       request.promise.set_error(result.error().clone());
     }
     return;
   }
+  const auto *user_saved_music = add_user_saved_music(user_id);
   if (user_saved_music->count == -1) {
     CHECK(have_min_user(user_id));
     // received result has just been dropped; resend request
@@ -7053,8 +7205,9 @@ void UserManager::finish_get_user_saved_music(UserId user_id, Result<Unit> &&res
         return;
       }
     }
-    user_saved_music->pending_requests = std::move(pending_requests);
-    return send_get_user_saved_music_query(user_id, user_saved_music);
+    auto &requests = pending_get_user_saved_music_requests_[user_id];
+    requests = std::move(pending_requests);
+    return send_get_user_saved_music_query(user_id, user_saved_music, requests);
   }
 
   CHECK(user_saved_music->offset != -1);
@@ -7095,10 +7248,11 @@ void UserManager::finish_get_user_saved_music(UserId user_id, Result<Unit> &&res
   }
 
   if (!left_requests.empty()) {
-    bool need_send = user_saved_music->pending_requests.empty();
-    append(user_saved_music->pending_requests, std::move(left_requests));
+    auto &requests = pending_get_user_saved_music_requests_[user_id];
+    bool need_send = requests.empty();
+    append(requests, std::move(left_requests));
     if (need_send) {
-      send_get_user_saved_music_query(user_id, user_saved_music);
+      send_get_user_saved_music_query(user_id, user_saved_music, requests);
     }
   }
 }
@@ -7131,7 +7285,7 @@ void UserManager::on_get_user_saved_music(UserId user_id, int32 offset, int32 li
             << " with offset " << offset << " and limit " << limit;
   UserSavedMusic *user_saved_music = add_user_saved_music(user_id);
   user_saved_music->count = total_count;
-  CHECK(!user_saved_music->pending_requests.empty());
+  CHECK(pending_get_user_saved_music_requests_.count(user_id));
 
   if (user_saved_music->offset == -1) {
     user_saved_music->offset = 0;
@@ -7515,8 +7669,7 @@ void UserManager::save_contacts_to_database() {
   }
 
   LOG(INFO) << "Schedule save contacts to database";
-  vector<UserId> user_ids =
-      transform(contacts_hints_.search_empty(100000).second, [](int64 key) { return UserId(key); });
+  auto user_ids = UserId::get_user_ids(contacts_hints_.search_empty(100000).second);
 
   G()->td_db()->get_binlog_pmc()->set("saved_contact_count", to_string(saved_contact_count_));
   G()->td_db()->get_binlog()->force_sync(
@@ -8567,6 +8720,7 @@ void UserManager::on_get_user_full(telegram_api::object_ptr<telegram_api::userFu
       user_full, StarManager::get_star_count(user->settings_->charge_paid_message_stars_));
   on_update_user_full_send_paid_message_stars(user_full, StarManager::get_star_count(user->send_paid_messages_stars_));
   on_update_user_full_wallpaper_overridden(user_full, user->wallpaper_overridden_);
+  on_update_user_full_noforwards(user_full, true, user->noforwards_my_enabled_, true, user->noforwards_peer_enabled_);
   on_update_user_full_note(user_full,
                            get_formatted_text(this, std::move(user->note_), true, false, "on_get_user_full note"));
 
@@ -8650,7 +8804,7 @@ void UserManager::on_get_user_full(telegram_api::object_ptr<telegram_api::userFu
     user_full->is_changed = true;
     td_->group_call_manager_->on_update_dialog_about(DialogId(user_id), user_full->about, true);
   }
-  if (is_bot && !td_->auth_manager_->is_bot()) {
+  if (is_bot && (!td_->auth_manager_->is_bot() || user_id == get_my_id())) {
     auto *bot_info = user_full->add_bot_info();
     AdministratorRights group_administrator_rights(user->bot_group_admin_rights_, ChannelType::Megagroup);
     AdministratorRights broadcast_administrator_rights(user->bot_broadcast_admin_rights_, ChannelType::Broadcast);
@@ -8916,7 +9070,7 @@ void UserManager::on_load_user_full_from_database(UserId user_id, string value) 
   }
   dependencies.add(user_full->personal_channel_id);
   add_formatted_text_dependencies(dependencies, &user_full->note);
-  if (!dependencies.resolve_force(td_, "on_load_user_full_from_database")) {
+  if (!dependencies.resolve_force(td_, "on_load_user_full_from_database 1")) {
     users_full_.erase(user_id);
     G()->td_db()->get_sqlite_pmc()->erase(get_user_full_database_key(user_id), Auto());
     return;
@@ -8932,24 +9086,52 @@ void UserManager::on_load_user_full_from_database(UserId user_id, string value) 
 
   User *u = get_user(user_id);
   CHECK(u != nullptr);
-  drop_user_full_photos(user_full, user_id, u->photo.id, "on_load_user_full_from_database");
+  drop_user_full_photos(user_full, user_id, u->photo.id, "on_load_user_full_from_database 2");
   if (!user_full->photo.is_empty()) {
     register_user_photo(u, user_id, user_full->photo);
   }
   if (user_id == get_my_id() && !user_full->fallback_photo.is_empty()) {
     register_suggested_profile_photo(user_full->fallback_photo);
   }
+  if (user_full->noforwards_my_enabled || user_full->noforwards_peer_enabled) {
+    user_full->is_has_protected_content_changed = true;
+  }
 
   td_->group_call_manager_->on_update_dialog_about(DialogId(user_id), user_full->about, false);
 
   user_full->is_update_user_full_sent = true;
-  update_user_full(user_full, user_id, "on_load_user_full_from_database", true);
+  update_user_full(user_full, user_id, "on_load_user_full_from_database 3", true);
 
   if (is_user_deleted(u)) {
     drop_user_full(user_id);
   } else if (user_full->expires_at == 0.0) {
-    reload_user_full(user_id, Auto(), "on_load_user_full_from_database");
+    reload_user_full(user_id, Auto(), "on_load_user_full_from_database 4");
   }
+}
+
+void UserManager::register_noforwards_request(MessageFullId message_full_id, int32 message_date) {
+  auto message_id = message_full_id.get_message_id();
+  auto duration = td_->option_manager_->get_option_integer("has_protected_content_disable_request_duration");
+  auto left_time = message_date + duration - G()->unix_time();
+  if (left_time > 0 && !message_id.is_scheduled()) {
+    auto &request_id = noforwards_request_ids_[message_full_id];
+    CHECK(request_id == 0);
+    request_id = ++current_noforwards_request_id_;
+    noforwards_request_message_ids_[request_id] = message_full_id;
+    noforwards_request_timeout_.set_timeout_in(request_id, static_cast<double>(left_time) + 1);
+  }
+}
+
+void UserManager::unregister_noforwards_request(MessageFullId message_full_id) {
+  auto it = noforwards_request_ids_.find(message_full_id);
+  if (it == noforwards_request_ids_.end()) {
+    return;
+  }
+  auto request_id = it->second;
+  CHECK(request_id != 0);
+  noforwards_request_ids_.erase(it);
+  noforwards_request_message_ids_.erase(request_id);
+  noforwards_request_timeout_.cancel_timeout(request_id);
 }
 
 void UserManager::get_web_app_placeholder(UserId user_id, Promise<td_api::object_ptr<td_api::outline>> &&promise) {
@@ -8967,7 +9149,10 @@ int64 UserManager::get_user_full_profile_photo_id(const UserFull *user_full) {
   if (!user_full->photo.is_empty()) {
     return user_full->photo.id.get();
   }
-  return user_full->fallback_photo.id.get();
+  if (!user_full->fallback_photo.is_empty()) {
+    return user_full->fallback_photo.id.get();
+  }
+  return 0;
 }
 
 void UserManager::drop_user_full_photos(UserFull *user_full, UserId user_id, int64 expected_photo_id,
@@ -8995,6 +9180,8 @@ void UserManager::drop_user_full_photos(UserFull *user_full, UserId user_id, int
     }
   }
   if (expected_photo_id != get_user_full_profile_photo_id(user_full)) {
+    LOG(INFO) << "Drop full " << user_id << ", because expected photo " << expected_photo_id << " instead of "
+              << get_user_full_profile_photo_id(user_full) << " from " << source;
     user_full->expires_at = 0.0;
   }
   if (user_full->is_update_user_full_sent) {
@@ -9045,6 +9232,7 @@ void UserManager::drop_user_full(UserId user_id) {
     return;
   }
 
+  LOG(INFO) << "Drop full information about " << user_id;
   user_full->expires_at = 0.0;
 
   user_full->photo = Photo();
@@ -9636,6 +9824,10 @@ void UserManager::update_user_full(UserFull *user_full, UserId user_id, const ch
     register_user_saved_music(user_id, user_full->first_saved_music_file_id);
     user_full->is_first_saved_music_file_id_changed = false;
   }
+  if (user_full->is_has_protected_content_changed) {
+    td_->messages_manager_->on_dialog_has_protected_content_updated(DialogId(user_id));
+    user_full->is_has_protected_content_changed = false;
+  }
   if (true) {
     vector<FileId> file_ids;
     if (!user_full->personal_photo.is_empty()) {
@@ -9739,9 +9931,9 @@ td_api::object_ptr<td_api::UserStatus> UserManager::get_user_status_object(UserI
   }
 }
 
-bool UserManager::get_user_has_unread_stories(const User *u) {
+ActiveStoryState UserManager::get_user_active_story_state(const User *u) {
   CHECK(u != nullptr);
-  return u->max_active_story_id.get() > u->max_read_story_id.get();
+  return ActiveStoryState(u->max_active_story_id, u->max_read_story_id, u->has_live_story);
 }
 
 td_api::object_ptr<td_api::updateUser> UserManager::get_update_user_object(UserId user_id, const User *u) const {
@@ -9756,7 +9948,7 @@ td_api::object_ptr<td_api::updateUser> UserManager::get_update_unknown_user_obje
   return td_api::make_object<td_api::updateUser>(td_api::make_object<td_api::user>(
       user_id.get(), "", "", nullptr, "", td_api::make_object<td_api::userStatusEmpty>(), nullptr,
       td_->theme_manager_->get_accent_color_id_object(AccentColorId(user_id)), 0, nullptr, -1, 0, nullptr, false, false,
-      false, nullptr, false, false, nullptr, false, false, false, 0, have_access,
+      false, nullptr, false, false, nullptr, nullptr, false, 0, have_access,
       td_api::make_object<td_api::userTypeUnknown>(), "", false));
 }
 
@@ -9793,8 +9985,9 @@ td_api::object_ptr<td_api::user> UserManager::get_user_object(UserId user_id, co
   } else if (u->is_bot) {
     type = td_api::make_object<td_api::userTypeBot>(
         u->can_be_edited_bot, u->can_join_groups, u->can_read_all_group_messages, u->has_main_app,
-        u->has_bot_forum_view, u->is_inline_bot, u->inline_query_placeholder, u->need_location_bot, u->is_business_bot,
-        u->can_be_added_to_attach_menu, u->bot_active_users);
+        u->has_bot_forum_view, u->has_bot_forum_view && !u->can_bot_create_topics, u->is_inline_bot,
+        u->inline_query_placeholder, u->need_location_bot, u->is_business_bot, u->can_be_added_to_attach_menu,
+        u->bot_active_users);
   } else {
     type = td_api::make_object<td_api::userTypeRegular>();
   }
@@ -9802,7 +9995,7 @@ td_api::object_ptr<td_api::user> UserManager::get_user_object(UserId user_id, co
   auto emoji_status = EmojiStatus::get_emoji_status_object(u->last_sent_emoji_status);
   auto verification_status =
       get_verification_status_object(td_, u->is_verified, u->is_scam, u->is_fake, u->bot_verification_icon);
-  auto have_access = user_id == get_my_id() || have_input_peer_user(u, user_id, AccessRights::Know);
+  auto have_access = have_input_peer_user(u, user_id, AccessRights::Know);
   auto restricts_new_chats = u->contact_require_premium && !u->is_mutual_contact;
   return td_api::make_object<td_api::user>(
       user_id.get(), u->first_name, u->last_name, u->usernames.get_usernames_object(), u->phone_number,
@@ -9814,9 +10007,9 @@ td_api::object_ptr<td_api::user> UserManager::get_user_object(UserId user_id, co
       td_->theme_manager_->get_profile_accent_color_id_object(u->profile_accent_color_id),
       u->profile_background_custom_emoji_id.get(), std::move(emoji_status), is_user_contact(u, user_id, false),
       is_user_contact(u, user_id, true), u->is_close_friend, std::move(verification_status), u->is_premium,
-      u->is_support, get_restriction_info_object(u->restriction_reasons), u->max_active_story_id.is_valid(),
-      get_user_has_unread_stories(u), restricts_new_chats, u->paid_message_star_count, have_access, std::move(type),
-      u->language_code, u->attach_menu_enabled);
+      u->is_support, get_restriction_info_object(u->restriction_reasons),
+      get_user_active_story_state(u).get_active_story_state_object(), restricts_new_chats, u->paid_message_star_count,
+      have_access, std::move(type), u->language_code, u->attach_menu_enabled);
 }
 
 vector<int64> UserManager::get_user_ids_object(const vector<UserId> &user_ids, const char *source) const {
@@ -9875,7 +10068,7 @@ td_api::object_ptr<td_api::userFullInfo> UserManager::get_user_full_info_object(
           nullptr, nullptr, nullptr);
     }
     if (u != nullptr && u->can_be_edited_bot && u->usernames.has_editable_username()) {
-      auto bot_username = u->usernames.get_editable_username();
+      auto bot_username = u->usernames.get_editable_username().str();
       bot_info->edit_commands_link_ = td_api::make_object<td_api::internalLinkTypeBotStart>(
           "botfather", PSTRING() << bot_username << "-commands", true);
       bot_info->edit_description_link_ = td_api::make_object<td_api::internalLinkTypeBotStart>(
@@ -9901,7 +10094,7 @@ td_api::object_ptr<td_api::userFullInfo> UserManager::get_user_full_info_object(
         return false;
       });
     }
-    bio_object = get_formatted_text_object(this, bio, true, 0);
+    bio_object = get_formatted_text_object(this, bio, true, -1);
   }
   auto voice_messages_forbidden = is_premium ? user_full->voice_messages_forbidden : false;
   auto block_list_id = BlockListId(user_full->is_blocked, user_full->is_blocked_for_stories);
@@ -9919,8 +10112,14 @@ td_api::object_ptr<td_api::userFullInfo> UserManager::get_user_full_info_object(
   auto user_rating = user_full->star_rating == nullptr ? nullptr : user_full->star_rating->get_user_rating_object();
   auto pending_user_rating =
       user_full->pending_star_rating == nullptr ? nullptr : user_full->pending_star_rating->get_user_rating_object();
-  auto note = is_contact && !user_full->note.text.empty() ? get_formatted_text_object(this, user_full->note, true, -1)
-                                                          : nullptr;
+  td_api::object_ptr<td_api::formattedText> note;
+  if (is_contact && !user_full->note.text.empty()) {
+    auto user_note = user_full->note;
+    if (fix_formatted_text(user_note.text, user_note.entities, false, false, false, true, true, false).is_ok()) {
+      note = get_formatted_text_object(this, user_note, true, -1);
+    }
+  }
+
   return td_api::make_object<td_api::userFullInfo>(
       get_chat_photo_object(td_->file_manager_.get(), user_full->personal_photo),
       get_chat_photo_object(td_->file_manager_.get(), user_full->photo),

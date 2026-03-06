@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -123,6 +123,12 @@ static td_api::object_ptr<td_api::PremiumFeature> get_premium_feature_object(Sli
   }
   if (premium_feature == "todo") {
     return td_api::make_object<td_api::premiumFeatureChecklists>();
+  }
+  if (premium_feature == "paid_messages") {
+    return td_api::make_object<td_api::premiumFeaturePaidMessages>();
+  }
+  if (premium_feature == "pm_noforwards") {
+    return td_api::make_object<td_api::premiumFeatureProtectPrivateChatContent>();
   }
   if (G()->is_test_dc()) {
     LOG(ERROR) << "Receive unsupported premium feature " << premium_feature;
@@ -362,7 +368,7 @@ class GetPremiumPromoQuery final : public Td::ResultHandler {
           auto animation_object = td_->animations_manager_->get_animation_object(parsed_document.file_id);
           business_animations.push_back(td_api::make_object<td_api::businessFeaturePromotionAnimation>(
               std::move(business_feature), std::move(animation_object)));
-        } else if (G()->is_test_dc()) {
+        } else if (promo->video_sections_[i] != "gifts") {
           LOG(ERROR) << "Receive unsupported feature " << promo->video_sections_[i];
         }
       }
@@ -370,7 +376,7 @@ class GetPremiumPromoQuery final : public Td::ResultHandler {
 
     auto period_options = get_premium_gift_options(std::move(promo->period_options_));
     promise_.set_value(
-        td_api::make_object<td_api::premiumState>(get_formatted_text_object(td_->user_manager_.get(), state, true, 0),
+        td_api::make_object<td_api::premiumState>(get_formatted_text_object(td_->user_manager_.get(), state, true, -1),
                                                   get_premium_state_payment_options_object(period_options),
                                                   std::move(animations), std::move(business_animations)));
   }
@@ -520,7 +526,7 @@ class CheckGiftCodeQuery final : public Td::ResultHandler {
     td_->user_manager_->on_get_users(std::move(result->users_), "CheckGiftCodeQuery");
     td_->chat_manager_->on_get_chats(std::move(result->chats_), "CheckGiftCodeQuery");
 
-    if (result->date_ <= 0 || result->months_ <= 0 || result->used_date_ < 0) {
+    if (result->date_ <= 0 || result->days_ <= 0 || result->used_date_ < 0) {
       LOG(ERROR) << "Receive " << to_string(result);
       return on_error(Status::Error(500, "Receive invalid response"));
     }
@@ -551,10 +557,12 @@ class CheckGiftCodeQuery final : public Td::ResultHandler {
       LOG(ERROR) << "Receive " << to_string(result);
       message_id = MessageId();
     }
+    auto month_count = get_premium_duration_month_count(result->days_);
     promise_.set_value(td_api::make_object<td_api::premiumGiftCodeInfo>(
         creator_dialog_id == DialogId() ? nullptr
                                         : get_message_sender_object(td_, creator_dialog_id, "premiumGiftCodeInfo"),
-        result->date_, result->via_giveaway_, message_id.get(), result->months_,
+        result->date_, result->via_giveaway_, message_id.get(),
+        get_premium_duration_day_count(month_count) == result->days_ ? month_count : 0, result->days_,
         td_->user_manager_->get_user_id_object(user_id, "premiumGiftCodeInfo"), result->used_date_));
   }
 
@@ -1049,6 +1057,10 @@ static string get_premium_source(const td_api::PremiumFeature *feature) {
       return "effects";
     case td_api::premiumFeatureChecklists::ID:
       return "todo";
+    case td_api::premiumFeaturePaidMessages::ID:
+      return "paid_messages";
+    case td_api::premiumFeatureProtectPrivateChatContent::ID:
+      return "pm_noforwards";
     default:
       UNREACHABLE();
   }
@@ -1233,17 +1245,19 @@ void get_premium_limit(const td_api::object_ptr<td_api::PremiumLimitType> &limit
 void get_premium_features(Td *td, const td_api::object_ptr<td_api::PremiumSource> &source,
                           Promise<td_api::object_ptr<td_api::premiumFeatures>> &&promise) {
   auto premium_features = full_split(
-      G()->get_option_string(
-          "premium_features",
-          "stories,more_upload,double_limits,business,last_seen,voice_to_text,faster_download,translations,animated_"
-          "emoji,emoji_status,saved_tags,peer_colors,wallpapers,profile_badge,message_privacy,advanced_chat_management,"
-          "no_ads,app_icons,infinite_reactions,animated_userpics,premium_stickers,effects,todo"),
+      G()->get_option_string("premium_features",
+                             "stories,more_upload,double_limits,business,last_seen,voice_to_text,faster_download,"
+                             "translations,animated_emoji,emoji_status,saved_tags,peer_colors,wallpapers,profile_badge,"
+                             "message_privacy,advanced_chat_management,no_ads,app_icons,infinite_reactions,animated_"
+                             "userpics,premium_stickers,effects,todo,paid_messages,pm_noforwards"),
       ',');
   vector<td_api::object_ptr<td_api::PremiumFeature>> features;
   for (const auto &premium_feature : premium_features) {
     auto feature = get_premium_feature_object(premium_feature);
     if (feature != nullptr) {
       features.push_back(std::move(feature));
+    } else {
+      LOG(ERROR) << "Receive unsupported Premium feature " << premium_feature;
     }
   }
 

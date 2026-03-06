@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -17,7 +17,7 @@
 
 namespace td {
 
-ForumTopic::ForumTopic(Td *td, tl_object_ptr<telegram_api::ForumTopic> &&forum_topic_ptr,
+ForumTopic::ForumTopic(Td *td, telegram_api::object_ptr<telegram_api::ForumTopic> &&forum_topic_ptr,
                        const DialogNotificationSettings *current_notification_settings) {
   CHECK(forum_topic_ptr != nullptr);
   if (forum_topic_ptr->get_id() != telegram_api::forumTopic::ID) {
@@ -137,10 +137,11 @@ td_api::object_ptr<td_api::forumTopic> ForumTopic::get_forum_topic_object(Td *td
 
 td_api::object_ptr<td_api::updateForumTopic> ForumTopic::get_update_forum_topic_object(
     Td *td, DialogId dialog_id, ForumTopicId forum_topic_id) const {
+  auto draft_message = get_draft_message_object(td, draft_message_);
   return td_api::make_object<td_api::updateForumTopic>(
       td->dialog_manager_->get_chat_id_object(dialog_id, "updateForumTopic"), forum_topic_id.get(), is_pinned_,
       last_read_inbox_message_id_.get(), last_read_outbox_message_id_.get(), unread_mention_count_,
-      unread_reaction_count_, get_chat_notification_settings_object(&notification_settings_));
+      unread_reaction_count_, get_chat_notification_settings_object(&notification_settings_), std::move(draft_message));
 }
 
 }  // namespace td
