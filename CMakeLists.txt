@@ -235,6 +235,7 @@ if (NOT CMAKE_CROSSCOMPILING)
   add_subdirectory(benchmark)
 endif()
 
+add_subdirectory(example/cpp)
 
 get_directory_property(HAS_PARENT PARENT_DIRECTORY)
 if (HAS_PARENT)
@@ -1407,7 +1408,7 @@ endif()
 
 # Exported libraries
 add_library(TdStatic INTERFACE)
-target_link_libraries(TdStatic INTERFACE tdclient)
+target_link_libraries(TdStatic INTERFACE tdclient tdutils)
 
 add_library(TdJson INTERFACE)
 target_link_libraries(TdJson INTERFACE tdjson)

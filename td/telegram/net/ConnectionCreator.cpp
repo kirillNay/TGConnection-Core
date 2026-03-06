@@ -17,6 +17,7 @@
 #include "td/telegram/PromoDataManager.h"
 #include "td/telegram/StateManager.h"
 #include "td/telegram/TdDb.h"
+#include "td/telegram/net/DcOptionsStore.h"
 
 #include "td/mtproto/DhCallback.h"
 #include "td/mtproto/HandshakeActor.h"
@@ -1192,6 +1193,7 @@ void ConnectionCreator::on_dc_options(DcOptions new_dc_options) {
   VLOG(connections) << "SAVE " << new_dc_options;
   G()->td_db()->get_binlog_pmc()->set("dc_options", serialize(new_dc_options));
   dc_options_set_.reset();
+  DcOptionsStore::instance().save_dc_options(new_dc_options);
   add_dc_options(std::move(new_dc_options));
 }
 

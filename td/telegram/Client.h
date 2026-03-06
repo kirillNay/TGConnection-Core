@@ -10,6 +10,7 @@
 
 #include "td/telegram/td_api.h"
 #include "td/telegram/td_api.hpp"
+#include "tdutils/td/utils/port/IPAddress.h"
 
 #include <cstdint>
 #include <memory>
@@ -114,6 +115,8 @@ class ClientManager final {
    *         if the timeout expires.
    */
   Response receive(double timeout);
+
+  std::vector<td::IPAddress> fetch_dc_updates();
 
   /**
    * Synchronously executes a TDLib request.
