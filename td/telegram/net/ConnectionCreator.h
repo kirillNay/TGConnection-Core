@@ -82,6 +82,8 @@ class ConnectionCreator final : public NetQueryCallback {
 
   void test_proxy(Proxy &&proxy, int32 dc_id, double timeout, Promise<Unit> &&promise);
 
+  static DcOptions get_default_dc_options(bool is_test);
+
  private:
   ActorShared<> parent_;
   DcOptionsSet dc_options_set_;
@@ -245,8 +247,6 @@ class ConnectionCreator final : public NetQueryCallback {
   };
   Result<SocketFd> find_connection(const Proxy &proxy, const IPAddress &proxy_ip_address, DcId dc_id,
                                    bool allow_media_only, FindConnectionExtra &extra);
-
-  static DcOptions get_default_dc_options(bool is_test);
 
   static Result<mtproto::TransportType> get_transport_type(const Proxy &proxy,
                                                            const DcOptionsSet::ConnectionInfo &info);

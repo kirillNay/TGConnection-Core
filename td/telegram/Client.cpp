@@ -5,6 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 #include "td/telegram/Client.h"
+#include "td/telegram/Global.h"
+#include "td/telegram/net/DcOptionsStore.h"
 
 #include "td/telegram/Td.h"
 #include "td/telegram/TdCallback.h"
@@ -28,6 +30,7 @@
 #include "td/utils/StringBuilder.h"
 #include "td/utils/utf8.h"
 
+#include <iostream>
 #include <algorithm>
 #include <atomic>
 #include <limits>
@@ -395,6 +398,12 @@ class MultiImpl {
     send_closure(multi_td_, &MultiTd::send, client_id, request_id, std::move(request));
   }
 
+  void execute(std::function<void()> callback) {
+    auto guard = concurrent_scheduler_->get_send_guard();
+    auto dc_options = G()->td_db()->get_binlog_pmc()->get("dc_options");
+    std::cout << "Fetched options: " << dc_options << std::endl;
+  }
+
   void close(ClientManager::ClientId client_id) {
     LOG(INFO) << "Close client";
     auto guard = concurrent_scheduler_->get_send_guard();
@@ -515,6 +524,15 @@ class ClientManager::Impl final {
       return;
     }
     it->second.impl->send(client_id, request_id, std::move(request));
+  }
+
+  void execute(ClientId client_id, std::function<void()> callback) {
+    if (!MultiImpl::is_valid_client_id(client_id)) {
+      return;
+    }
+
+    auto it = impls_.find(client_id);
+    it->second.impl->execute(callback);
   }
 
   Response receive(double timeout) {
@@ -676,6 +694,10 @@ void ClientManager::send(ClientId client_id, RequestId request_id, td_api::objec
 
 ClientManager::Response ClientManager::receive(double timeout) {
   return impl_->receive(timeout);
+}
+
+std::vector<td::IPAddress> ClientManager::fetch_dc_updates() {
+  return DcOptionsStore::instance().wait_for_ip_addresses(std::chrono::seconds(10));
 }
 
 td_api::object_ptr<td_api::Object> ClientManager::execute(td_api::object_ptr<td_api::Function> &&request) {
