@@ -195,3 +195,16 @@ Telegram connection quality: Excellent (96.8/100)
   Connection states:
     Ready: 1
 ```
+
+---
+
+## Sample Android Application
+
+<img width="620" height="301" alt="Cover" src="https://github.com/user-attachments/assets/a11f9d9e-70cd-4f94-959e-cde7e2b6a94d" />
+
+TG Connection is a diagnostic app for analyzing the quality, stability, and reliability of your connection to Telegram servers.
+If messages are delayed, media is loading inconsistently, or you suspect network issues, the app can help you understand the cause.
+
+<a href="https://play.google.com/store/apps/details?id=nay.kirill.tgconnection">
+  <img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" width="200">
+</a>
